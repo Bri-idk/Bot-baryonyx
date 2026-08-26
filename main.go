@@ -1,113 +1,65 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/bwmarrin/discordgo"
+	"bot_barionyx/commands"
+
+	"github.com/disgoorg/disgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/joho/godotenv"
 )
 
-var commands = []*discordgo.ApplicationCommand{
-	{
-		Name:        "ping",
-		Description: "Responde con Pong y mide la latencia",
-	},
-	{
-		Name:        "saludar",
-		Description: "El bot te enviará un saludo personalizado",
-	},
-}
-
-var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
-	"ping": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("🏓 ¡Pong! Latencia: `%v`", s.HeartbeatLatency()),
-			},
-		})
-	},
-	"saludar": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		// Obtener el usuario que ejecutó el comando (en servidor o mensaje directo)
-		usuario := i.User
-		if i.Member != nil {
-			usuario = i.Member.User
-		}
-
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("¡Hola %s! 👋 ¿En qué te puedo ayudar hoy?", usuario.Mention()),
-			},
-		})
-	},
-}
-
 func main() {
-
 	if err := godotenv.Load(); err != nil {
-		log.Println("Aviso: no se encontró archivo .env, buscando en variables de entorno")
+		log.Println("Aviso: no se encontró archivo .env")
 	}
 
 	token := os.Getenv("TOKEN_BOT")
 	if token == "" {
-		log.Fatal("Error: TOKEN_BOT no está definido")
+		log.Fatal("TOKEN_BOT no está definido")
 	}
 
-	// Crear sesión
-	dg, err := discordgo.New("Bot " + token)
+	// 1. Configurar y crear cliente Disgo
+	client, err := disgo.New(token,
+		bot.WithGatewayConfigOpts(
+			gateway.WithIntents(
+				gateway.IntentGuilds,
+				gateway.IntentGuildVoiceStates, // Requerido para saber en qué canal de voz está el usuario
+			),
+		),
+		bot.WithEventListeners(&events.ListenerAdapter{
+			OnApplicationCommandInteraction: commands.HandleInteraction,
+		}),
+	)
 	if err != nil {
-		log.Fatalf("Error creando sesión: %v", err)
+		log.Fatal("Error creando cliente:", err)
 	}
 
-	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if i.Type == discordgo.InteractionApplicationCommand {
-			if handler, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
-				handler(s, i)
-			}
-		}
-	})
-
-	if err := dg.Open(); err != nil {
-		log.Fatalf("Error al conectar con Discord: %v", err)
-	}
-	defer dg.Close()
-
-	// Registrar los comandos en Discord
-	// NOTA: Dejar "" como segundo parámetro los registra de forma global.
-	// (Los comandos globales pueden tardar hasta 1 hora en propagarse en Discord;
-	// si pones el ID de tu servidor en lugar de "", se actualizan al instante).
-	guildID := "" //*para pruebas insta
-
-	log.Println("Registrando comandos...")
-	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
-	for idx, cmd := range commands {
-		createdCmd, err := dg.ApplicationCommandCreate(dg.State.User.ID, guildID, cmd)
-		if err != nil {
-			log.Fatalf("No se pudo crear el comando '%v': %v", cmd.Name, err)
-		}
-		registeredCommands[idx] = createdCmd
+	// 2. Conectar a Discord
+	if err = client.OpenGateway(context.TODO()); err != nil {
+		log.Fatal("Error conectando al Gateway:", err)
 	}
 
-	fmt.Println("🤖 Bot conectado y listo. Presiona CTRL+C para detener.")
-
-	// Esperar señal de salida
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-stop
-
-	// borrar comandos al apagar el bot
-	fmt.Println("\nEliminando comandos registrados...")
-	for _, cmd := range registeredCommands {
-		err := dg.ApplicationCommandDelete(dg.State.User.ID, guildID, cmd.ID)
-		if err != nil {
-			log.Printf("No se pudo eliminar el comando '%v': %v", cmd.Name, err)
-		}
+	// 3. Registrar comandos
+	log.Println("Registrando comandos globales...")
+	_, err = client.Rest.SetGlobalCommands(client.ApplicationID, commands.CommandList)
+	if err != nil {
+		log.Fatal("Error registrando comandos:", err)
 	}
 
-	fmt.Println("Bot desconectado correctamente.")
+	fmt.Println("🤖 Bot conectado y listo con Disgo. Presiona CTRL+C para detener.")
+	s := make(chan os.Signal, 1)
+	signal.Notify(s, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-s
+
+	fmt.Println("\nDesconectando...")
+	client.Close(context.TODO())
 }
