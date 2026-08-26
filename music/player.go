@@ -14,16 +14,29 @@ import (
 )
 
 func UnirseCanal(client *bot.Client, guildID, channelID snowflake.ID) error {
+	if client == nil || client.VoiceManager == nil {
+		return fmt.Errorf("el gestor de voz no está configurado")
+	}
 
 	conn := client.VoiceManager.CreateConn(guildID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	return conn.Open(ctx, channelID, false, true)
+	if err := conn.Open(ctx, channelID, false, true); err != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		conn.Close(cleanupCtx)
+		client.VoiceManager.RemoveConn(guildID)
+		return fmt.Errorf("no se pudo completar la conexión de voz: %w", err)
+	}
+	return nil
 }
 
 func Desconectar(client *bot.Client, guildID snowflake.ID) error {
+	if client == nil || client.VoiceManager == nil {
+		return fmt.Errorf("el gestor de voz no está configurado")
+	}
 	conn := client.VoiceManager.GetConn(guildID)
 	if conn == nil {
 		return fmt.Errorf("no hay conexión en este servidor")
@@ -43,7 +56,11 @@ func GetStreamURL(youtubeURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	streamURL := strings.TrimSpace(string(out))
+	if streamURL == "" {
+		return "", fmt.Errorf("yt-dlp no devolvió una URL de audio")
+	}
+	return streamURL, nil
 }
 
 // dcaProvider sirve de "puente" entre DCA y Disgo
@@ -60,6 +77,9 @@ func (p *dcaProvider) Close() {
 }
 
 func PlayYouTube(client *bot.Client, guildID snowflake.ID, youtubeURL string) error {
+	if client == nil || client.VoiceManager == nil {
+		return fmt.Errorf("el gestor de voz no está configurado")
+	}
 	conn := client.VoiceManager.GetConn(guildID)
 	if conn == nil {
 		return fmt.Errorf("no hay conexión")
@@ -83,7 +103,10 @@ func PlayYouTube(client *bot.Client, guildID snowflake.ID, youtubeURL string) er
 	// Decirle a Discord que se "encienda" el arillo verde de hablar
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn.SetSpeaking(ctx, voice.SpeakingFlagMicrophone)
+	if err := conn.SetSpeaking(ctx, voice.SpeakingFlagMicrophone); err != nil {
+		session.Cleanup()
+		return fmt.Errorf("no se pudo activar el estado de voz: %w", err)
+	}
 
 	// Disgo se encarga de pedirle audio a este proveedor cada 20 milisegundos!
 	conn.SetOpusFrameProvider(&dcaProvider{session: session})

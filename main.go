@@ -12,9 +12,12 @@ import (
 
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/disgo/voice"
 	"github.com/joho/godotenv"
+	"github.com/thomas-vilte/dave-go/session"
 )
 
 func main() {
@@ -29,6 +32,10 @@ func main() {
 
 	// 1. Configurar y crear cliente Disgo
 	client, err := disgo.New(token,
+		bot.WithCacheConfigOpts(cache.WithCaches(cache.FlagVoiceStates)),
+		bot.WithVoiceManagerConfigOpts(
+			voice.WithDaveSessionCreateFunc(session.CreateFunc()),
+		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(
 				gateway.IntentGuilds,

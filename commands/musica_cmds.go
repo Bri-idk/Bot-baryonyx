@@ -23,7 +23,12 @@ var PlayCommand = discord.SlashCommandCreate{
 
 func PlayHandler(client *bot.Client, e *events.ApplicationCommandInteractionCreate) {
 	url := e.SlashCommandInteractionData().String("url")
-	guildID := *e.GuildID()
+	guildIDPtr := e.GuildID()
+	if guildIDPtr == nil {
+		e.CreateMessage(discord.MessageCreate{Content: "❌ Este comando solo puede usarse dentro de un servidor."})
+		return
+	}
+	guildID := *guildIDPtr
 	userID := e.User().ID
 
 	// Disgo guarda en caché dónde está el usuario
@@ -34,13 +39,34 @@ func PlayHandler(client *bot.Client, e *events.ApplicationCommandInteractionCrea
 	}
 	channelID := *voiceState.ChannelID
 
-	err := music.UnirseCanal(client, guildID, channelID)
-	if err != nil {
-		e.CreateMessage(discord.MessageCreate{Content: "❌ Error al unirse al canal de voz."})
+	if err := e.DeferCreateMessage(false); err != nil {
+		fmt.Printf("Error respondiendo la interacción /play: %v\n", err)
 		return
 	}
 
-	e.CreateMessage(discord.MessageCreate{Content: fmt.Sprintf("🎵 Preparando y reproduciendo: %s", url)})
+	err := music.UnirseCanal(client, guildID, channelID)
+	if err != nil {
+		message := "❌ Error al unirse al canal de voz: " + err.Error()
+		_, updateErr := client.Rest.UpdateInteractionResponse(
+			e.ApplicationID(),
+			e.Token(),
+			discord.MessageUpdate{Content: &message},
+		)
+		if updateErr != nil {
+			fmt.Printf("Error actualizando la respuesta de /play: %v\n", updateErr)
+		}
+		return
+	}
+
+	message := fmt.Sprintf("🎵 Preparando y reproduciendo: %s", url)
+	_, err = client.Rest.UpdateInteractionResponse(
+		e.ApplicationID(),
+		e.Token(),
+		discord.MessageUpdate{Content: &message},
+	)
+	if err != nil {
+		fmt.Printf("Error actualizando la respuesta de /play: %v\n", err)
+	}
 
 	// Reproducir en segundo plano
 	go func() {
