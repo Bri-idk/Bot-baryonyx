@@ -77,7 +77,7 @@ El bot se encuentra en desarrollo activo. A continuación se detallan los módul
 | Componente | Tecnología |
 | :--- | :--- |
 | **Lenguaje principal** | [Go (Golang)](https://go.dev/) |
-| **Librería de Discord** | [DiscordGo](https://github.com/bwmarrin/discordgo) |
+| **Librería de Discord** | [Disgo](https://github.com/disgoorg/disgo@latest) |
 | **Gestor de Entorno** | [Godotenv](https://github.com/joho/godotenv) |
 | **Arquitectura** | Event-Driven & Interaction Handlers |
 
